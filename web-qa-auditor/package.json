@@ -1,0 +1,10 @@
+{
+  "name": "web-qa-auditor",
+  "version": "1.0.0",
+  "description": "Zero-dependency TypeScript QA auditor for HTML accessibility, broken links, hidden-overflow CSS risks, and HTTP smoke checks.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/auditor.test.ts",
+    "demo": "node src/cli.ts fixtures/buggy_page.html --out output"
+  }
+}
