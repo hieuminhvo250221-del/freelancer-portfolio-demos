@@ -1,0 +1,210 @@
+{
+  "name": "Telegram Q&A Chatbot (Curated Q&A + Grounded AI Fallback)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        180,
+        300
+      ],
+      "webhookId": "telegram-qa-trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize incoming Telegram message and match against curated Q&A pairs.\nconst item = $input.first().json;\nconst msg = item.message || {};\nconst chatId = msg.chat?.id;\nconst rawText = (msg.text || '').trim();\n\nif (!chatId || !rawText) {\n  return [{ json: { skip: true, reason: 'No text message or chatId' } }];\n}\n\n// Curated Q&A knowledge base (can also be loaded from Google Sheets / Notion / HTTP)\nconst qaPairs = [\n  {\n    id: 'hours',\n    keywords: ['hours', 'open', 'working hours', 'schedule', 'time'],\n    question: 'What are your support hours?',\n    answer: 'Our support team is available Monday to Friday, 09:00–18:00 UTC.'\n  },\n  {\n    id: 'pricing',\n    keywords: ['price', 'pricing', 'cost', 'plan', 'fee'],\n    question: 'How does your pricing work?',\n    answer: 'We offer Starter ($29/mo), Pro ($79/mo), and Custom Enterprise plans. All plans include API access.'\n  },\n  {\n    id: 'refund',\n    keywords: ['refund', 'cancel', 'money back', 'return'],\n    question: 'What is your refund policy?',\n    answer: 'You can request a full refund within 14 days of purchase by replying with your order ID.'\n  },\n  {\n    id: 'api',\n    keywords: ['api', 'webhook', 'integration', 'token', 'docs'],\n    question: 'Do you support REST API and webhooks?',\n    answer: 'Yes! REST API keys and webhook endpoints can be generated directly in Settings > Developers.'\n  }\n];\n\nconst normalized = rawText.toLowerCase().replace(/[^a-z0-9\\s]/g, ' ');\nconst tokens = new Set(normalized.split(/\\s+/).filter(Boolean));\n\nlet bestMatch = null;\nlet bestScore = 0;\n\nfor (const entry of qaPairs) {\n  let hits = 0;\n  for (const kw of entry.keywords) {\n    if (normalized.includes(kw)) {\n      hits += 1;\n    }\n  }\n  const score = hits / entry.keywords.length;\n  if (score > bestScore) {\n    bestScore = score;\n    bestMatch = entry;\n  }\n}\n\nconst matched = bestScore >= 0.25 && bestMatch !== null;\n\nreturn [{\n  json: {\n    skip: false,\n    chatId,\n    userQuery: rawText,\n    matched,\n    matchScore: Number(bestScore.toFixed(2)),\n    matchedAnswer: matched ? bestMatch.answer : null,\n    matchedQuestion: matched ? bestMatch.question : null,\n    qaContext: qaPairs.map(q => `Q: ${q.question}\\nA: ${q.answer}`).join('\\n\\n')\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Match Curated Q&A",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-matched",
+              "leftValue": "={{ $json.matched }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Deterministic Match Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ '*' + $json.matchedQuestion + '*\\n\\n' + $json.matchedAnswer }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Send Matched Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        940,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini', temperature: 0.1, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: 'You are a strict FAQ assistant. Answer ONLY using the provided Q&A context. Return JSON: {\"found\": boolean, \"reply\": string}. If the user question is not covered by the Q&A context, set found=false and reply=\"\".' }, { role: 'user', content: 'Q&A Context:\\n' + $json.qaContext + '\\n\\nUser Question: ' + $json.userQuery } ] }) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
+      "name": "AI Grounded Q&A Matcher",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        920,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst prev = $('Match Curated Q&A').first().json;\nlet parsed = { found: false, reply: '' };\n\ntry {\n  const content = raw.choices?.[0]?.message?.content || '{}';\n  parsed = JSON.parse(content);\n} catch (e) {\n  parsed = { found: false, reply: '' };\n}\n\nreturn [{\n  json: {\n    chatId: prev.chatId,\n    found: Boolean(parsed.found && parsed.reply),\n    replyText: parsed.found && parsed.reply\n      ? parsed.reply\n      : \"Thanks for reaching out! I don't have an exact answer for that in our FAQ yet. Please contact support@example.com or share more details and a team member will help.\"\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0006-4000-8000-000000000006",
+      "name": "Format AI / Fallback Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.replyText }}",
+        "additionalFields": {}
+      },
+      "id": "a1b2c3d4-0007-4000-8000-000000000007",
+      "name": "Send AI or Fallback Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1400,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Match Curated Q&A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Curated Q&A": {
+      "main": [
+        [
+          {
+            "node": "Deterministic Match Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deterministic Match Found?": {
+      "main": [
+        [
+          {
+            "node": "Send Matched Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Grounded Q&A Matcher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Grounded Q&A Matcher": {
+      "main": [
+        [
+          {
+            "node": "Format AI / Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format AI / Fallback Reply": {
+      "main": [
+        [
+          {
+            "node": "Send AI or Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

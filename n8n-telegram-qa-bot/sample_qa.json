@@ -1,0 +1,26 @@
+[
+  {
+    "id": "hours",
+    "keywords": ["hours", "open", "working hours", "schedule", "time"],
+    "question": "What are your support hours?",
+    "answer": "Our support team is available Monday to Friday, 09:00-18:00 UTC."
+  },
+  {
+    "id": "pricing",
+    "keywords": ["price", "pricing", "cost", "plan", "fee"],
+    "question": "How does your pricing work?",
+    "answer": "We offer Starter ($29/mo), Pro ($79/mo), and Custom Enterprise plans. All plans include API access."
+  },
+  {
+    "id": "refund",
+    "keywords": ["refund", "cancel", "money back", "return"],
+    "question": "What is your refund policy?",
+    "answer": "You can request a full refund within 14 days of purchase by replying with your order ID."
+  },
+  {
+    "id": "api",
+    "keywords": ["api", "webhook", "integration", "token", "docs"],
+    "question": "Do you support REST API and webhooks?",
+    "answer": "Yes! REST API keys and webhook endpoints can be generated directly in Settings > Developers."
+  }
+]
